@@ -194,10 +194,11 @@ Let's now walk through making a simple custom command: `/ping`
     // Each custom command will also need to be added to the `handleCommand` method.
     ```
 
-3. That comment above helpfully tells us what to edit next. Let's find the `handleCommand` method. It is lurking somewhere around line 79. The message deserializer has removed the leading slash from the command, so we only have to look for "ping". Add something like this to the switch statement: 
+3. That comment above helpfully tells us what to edit next. Let's find the `handleCommand` method. It is lurking somewhere around line 79. The `parseCommand` method has removed the leading slash from the command, so we only have to look for "ping". Add something like this to the switch statement:
     ```
     case "ping":
         handlePingCommand(message, command.get().argument);
+        break;
     ```
     
 4. Now we have to define the new method. To take best advantage of cut and paste and place it near things that are alike, we'll put it by `handleUnknownCommand`, near line 166. In fact, let's just cut and paste the handleUnknownCommand method, and change the name and arguments: 
@@ -229,7 +230,7 @@ Let's now walk through making a simple custom command: `/ping`
             .build();
     ```
 
-5. Now lets gothe top to define those constants (near line 50).
+5. Now lets go to the top to define those constants (near line 50).
     ```
     private static final String ALL_PLAYERS = "*";
     private static final String PINGPONG = " is playing pingpong";
