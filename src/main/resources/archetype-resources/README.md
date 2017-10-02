@@ -177,3 +177,99 @@ $symbol_pound$symbol_pound Editing your room
     kubectl get -w pod ${rootArtifactId}-0
     ```
 Press control-C to exit once this prints a line with "1/1" and "Running".
+
+If you go back to the game now, you should see your changes (as the game will reconnect the websocket when your service comes back).
+
+$symbol_pound$symbol_pound Adding a custom command
+
+Let's now walk through making a simple custom command: `/ping`
+
+1. Open your Room implementation in your editor again (if you happened to close your IDE in the meanwhile, remember it is `com/lightbend/lagom/gameon/${rootArtifactId}/impl/Room.java` under `src/main/java` in the `${rootArtifactId}-impl` project).
+
+2. Around line 37 is a `/ping` command. You'll need to uncomment that line, and remove the semi-colon ahead of it to add the `/ping` command to the list of commands known to your room. It should look something like this (clean it up more if you'd like): 
+    ```
+    static final PMap<String, String> COMMANDS = HashTreePMap.<String, String>empty()
+    // Add custom commands below:
+        .plus("/ping", "Does this work?");
+    // Each custom command will also need to be added to the `handleCommand` method.
+    ```
+
+3. That comment above helpfully tells us what to edit next. Let's find the `handleCommand` method. It is lurking somewhere around line 79. The message deserializer has removed the leading slash from the command, so we only have to look for "ping". Add something like this to the switch statement: 
+    ```
+    case "ping":
+        handlePingCommand(message, command.get().argument);
+    ```
+    
+4. Now we have to define the new method. To take best advantage of cut and paste and place it near things that are alike, we'll put it by `handleUnknownCommand`, near line 166. In fact, let's just cut and paste the handleUnknownCommand method, and change the name and arguments: 
+    ```
+    private void handlePingCommand(RoomCommand pingCommand, String argument) {
+        Event pingCommandResponse = Event.builder()
+                .playerId(pingCommand.getUserId())
+                .content(HashTreePMap.singleton(
+                     pingCommand.getUserId(), UNKNOWN_COMMAND + argument
+                ))
+                .bookmark(Optional.empty())
+                .build();
+        reply(pingCommandResponse);
+    }
+    ```
+    This method takes in a command and packages a response, which it then sends. 
+    
+5. There are some changes we need to make to this command. An obvious one is replacing that `UNKNOWN_COMMAND` constant. But before we take off to do that, we should take a closer look at that response. As currently defined, the ping response is specific: it will only go back to the player that initiated it. Let's tell everyone that the player is playing pingpong. The [WebSocket protocol for events](https://book.gameontext.org/microservices/WebSocketProtocol.html#_room_mediator_client_event_message) specifies how to deliver content to everyone, and further, how to direct some content to one player, and other content to everyone else. Focusing  on the `pingCommandResponse` formation. We need to make the following changes: 
+    * Target all players using `*`
+    * Add two entries to the content map, one for the player, and one for everyone else.
+    All told, it should look something like this: 
+    ```
+    Event pingCommandResponse = Event.builder()
+            .playerId(ALL_PLAYERS)
+            .content(HashTreePMap.<String, String>empty()
+                    .plus(ALL_PLAYERS, pingCommand.getUserId() + PINGPONG)
+                    .plus(pingCommand.getUserId(), PONG + argument))
+            .bookmark(Optional.empty())
+            .build();
+    ```
+
+5. Now lets gothe top to define those constants (near line 50).
+    ```
+    private static final String ALL_PLAYERS = "*";
+    private static final String PINGPONG = " is playing pingpong";
+    private static final String PONG = "pong: ";
+    ```
+
+7. There should be no compilation errors (as reported by your IDE) at this point. Let's try adding a test to make sure this works. Open `com/lightbend/lagom/gameon/${rootArtifactId}/impl/RoomServiceIntegrationTest.java` under `src/test/java` in the `${rootArtifactId}-impl` project). We'll add our new test as a neighbor to the test for the Unknown command again, which is somewhere around line 244. Add a test method that looks something like the following. Note that we've typed more explicitly what we expect to be in the message.
+
+    ```
+        
+    @Test
+    public void broadcastsPingCommands() throws Exception {
+        try (GameOnTester tester = new GameOnTester()) {
+            tester.expectAck();
+
+            RoomCommand pingMessage = RoomCommand.builder()
+                    .roomId("<roomId>")
+                    .username("chatUser")
+                    .userId("<userId>")
+                    .content("/ping Hello, world")
+                    .build();
+            tester.send(pingMessage);
+
+            Event unknownCommandEvent = Event.builder()
+                    .playerId("*")
+                    .content(HashTreePMap.<String, String>empty()
+                            .plus("*", "<userId> is playing pingpong")
+                            .plus("<userId>", "pong: Hello, world"))
+                    .bookmark(Optional.empty())
+                    .build();
+            tester.expect(unknownCommandEvent);
+        }
+    }
+    ```
+
+7. There should be no compilation errors at this point. We can revisit the previous steps to work with our new room
+    ```
+    mvn clean package docker:build
+    docker tag javaone/${rootArtifactId}-impl:1.0-SNAPSHOT registry.ng.bluemix.net/javaone/${rootArtifactId}-impl:1.0-SNAPSHOT
+    docker push registry.ng.bluemix.net/javaone/${rootArtifactId}-impl:1.0-SNAPSHOT
+    kubectl delete pod ${rootArtifactId} && kubectl get -w pod ${rootArtifactId}-0
+    ```
+
